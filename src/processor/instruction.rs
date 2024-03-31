@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 pub struct Instruction {
     instruction: u16,
 }
@@ -44,5 +46,11 @@ impl Instruction {
     #[inline]
     pub fn high_nibble(&self) -> u8 {
         ((self.instruction >> 12) & 0xF) as u8
+    }
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#04x}", self.instruction)
     }
 }
