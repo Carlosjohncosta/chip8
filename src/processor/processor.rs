@@ -2,42 +2,12 @@ use super::*;
 use bit_vec::*;
 use rand::{thread_rng, Rng};
 
-macro_rules! bad_instruction {
-    ($instruction:expr) => {
-        Err(format!(
-            "Bad instruction: 0x{:4X}",
-            $instruction.get_instruction()
-        ))
-    };
-}
-
-const MEM_SIZE: usize = 0xFFF;
 const PG_START: usize = 0x200;
 pub const DISPLAY_WIDTH: usize = 0x40;
 pub const DISPLAY_HEIGHT: usize = 0x20;
-const FONT_DATA: [u8; 0x50] = [
-    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-    0x20, 0x60, 0x20, 0x20, 0x70, // 1
-    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
-];
-
-type ExecRes = Result<(), String>;
 
 pub struct Processor {
-    pub mem: [u8; MEM_SIZE],
+    pub memory: Memory,
     stack: [u16; 0x10],
     stack_pointer: u8,
     v_reg: [u8; 0x10],
@@ -51,27 +21,11 @@ pub struct Processor {
 
 impl Processor {
     //Uses slice of bytes as program data.
-    pub fn new(program: &[u8]) -> Result<Self, String> {
-        let pg_size = program.len();
-
-        //Checks if program fits into memory.
-        let mut mem = [0u8; MEM_SIZE];
-
-        //Loads number sprites into memory, from 0x0 to 0x50.
-        for (m_byte, f_byte) in mem.iter_mut().zip(FONT_DATA.iter()) {
-            *m_byte = *f_byte;
-        }
-
-        //Slize of memory that will hold the program, typically starting at 0x200.
-        let mem_pg_slice = &mut mem[PG_START..];
-
-        //Inserts program into mem slice.
-        for (m_byte, p_byte) in mem_pg_slice.iter_mut().zip(program.iter()) {
-            *m_byte = *p_byte;
-        }
+    pub fn new(program: &[u8]) -> Result<Self, EmuErr> {
+        let mem = Memory::init_with(program)?;
 
         Ok(Self {
-            mem,
+            memory: mem,
             stack: [0; 0x10],
             stack_pointer: 0,
             v_reg: [0; 0x10],
@@ -85,18 +39,18 @@ impl Processor {
         })
     }
 
-    fn mem_byte(&mut self, index: u16) -> &mut u8 {
-        &mut self.mem[index as usize]
-    }
-
     fn get_vreg(&mut self, index: u8) -> &mut u8 {
         &mut self.v_reg[index as usize]
     }
 
-    pub fn execute_next(&mut self) -> ExecRes {
+    pub fn execute_next(&mut self) -> Result<(), EmuErr> {
+        if self.pc as usize >= self.memory.len() {
+            return Err(EmuErr::BadPc { pc: self.pc });
+        }
+
         //Merges 2 byte opcode into u16
-        let high_byte = (*self.mem_byte(self.pc) as u16) << 8;
-        let low_byte = *self.mem_byte(self.pc + 1) as u16;
+        let high_byte = (*self.memory.get(self.pc)? as u16) << 8;
+        let low_byte = *self.memory.get(self.pc + 1)? as u16;
         let raw_instruction = high_byte | low_byte;
         let instruction = Instruction::new(raw_instruction);
 
@@ -106,7 +60,7 @@ impl Processor {
         Ok(())
     }
 
-    pub fn decode_and_execute(&mut self, instruction: Instruction) -> ExecRes {
+    pub fn decode_and_execute(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
         let x_reg_ref = self.get_vreg(instruction.x());
         let kk = instruction.kk();
         match instruction.high_nibble() {
@@ -117,7 +71,10 @@ impl Processor {
                     self.stack_pointer -= 1;
                     self.pc = self.stack[self.stack_pointer as usize]
                 } else {
-                    return bad_instruction!(instruction);
+                    return Err(EmuErr::BadInstruction {
+                        pc: self.pc,
+                        instruction,
+                    });
                 }
             }
             0x1 => self.pc = instruction.nnn(),
@@ -152,7 +109,7 @@ impl Processor {
             0xA => self.i_reg = instruction.nnn(),
             0xB => self.pc = instruction.nnn() + *x_reg_ref as u16,
             0xC => *x_reg_ref = thread_rng().gen_range(0u8..=255u8) % instruction.kk(),
-            0xD => self.draw(instruction),
+            0xD => self.draw(instruction)?,
             0xE => {
                 let x_reg_val = *x_reg_ref;
                 let key_pressed = self.pressed_keys[x_reg_val as usize];
@@ -165,17 +122,25 @@ impl Processor {
                         self.pc += 2;
                     }
                 } else {
-                    return bad_instruction!(instruction);
+                    return Err(EmuErr::BadInstruction {
+                        pc: self.pc,
+                        instruction,
+                    });
                 }
             }
             0xF => return self.instruction_0xf(instruction),
-            _ => return bad_instruction!(instruction),
+            _ => {
+                return Err(EmuErr::BadInstruction {
+                    pc: self.pc,
+                    instruction,
+                })
+            }
         }
         Ok(())
     }
 
     #[inline]
-    fn instruction_0x8(&mut self, instruction: Instruction) -> ExecRes {
+    fn instruction_0x8(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
         let y_reg_val = *self.get_vreg(instruction.y());
         let x_reg_ref = self.get_vreg(instruction.x());
         match instruction.low_nibble() {
@@ -219,13 +184,18 @@ impl Processor {
                 *x_reg_ref <<= 1;
                 self.v_reg[0xF] = hsb;
             }
-            _ => return bad_instruction!(instruction),
+            _ => {
+                return Err(EmuErr::BadInstruction {
+                    pc: self.pc,
+                    instruction,
+                })
+            }
         }
         Ok(())
     }
 
     #[inline]
-    fn instruction_0xf(&mut self, instruction: Instruction) -> ExecRes {
+    fn instruction_0xf(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
         let x_reg_val = *self.get_vreg(instruction.x());
         match instruction.kk() {
             0x7 => {
@@ -244,30 +214,37 @@ impl Processor {
             0x29 => self.i_reg = (x_reg_val * 5) as u16,
             0x55 => {
                 let v_reg_slice = &self.v_reg[..=instruction.x() as usize];
-                let mem_slice = &mut self.mem[self.i_reg as usize..];
+                let mem_slice = self.memory.slice_mut(self.i_reg..)?;
                 for (m, v) in mem_slice.iter_mut().zip(v_reg_slice.iter()) {
                     *m = *v;
                 }
             }
             0x65 => {
                 let v_reg_slice = &mut self.v_reg[..=instruction.x() as usize];
-                let mem_slice = &self.mem[self.i_reg as usize..];
+                let mem_slice = self.memory.slice(self.i_reg..)?;
                 for (v, m) in v_reg_slice.iter_mut().zip(mem_slice.iter()) {
                     *v = *m;
                 }
             }
-            _ => return bad_instruction!(instruction),
+            _ => {
+                return Err(EmuErr::BadInstruction {
+                    pc: self.pc,
+                    instruction,
+                })
+            }
         }
         Ok(())
     }
 
-    fn draw(&mut self, instruction: Instruction) {
+    fn draw(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
         let v_reg_x = *self.get_vreg(instruction.x()) as usize;
         let v_reg_y = *self.get_vreg(instruction.y()) as usize;
-        let i_reg = self.i_reg as usize;
+        let i_reg = self.i_reg;
         let mut vf_new = 0x0;
         //Slice of memory that will be used to draw from.
-        let mem_slice = &self.mem[i_reg..][..instruction.low_nibble() as usize];
+        let mem_slice = self
+            .memory
+            .slice(i_reg..i_reg + instruction.low_nibble() as u16)?;
         for (i, byte) in mem_slice.iter().enumerate() {
             //Loops through each bit in byte and XORs bit onto display buffer
             for j in 0usize..8usize {
@@ -293,6 +270,7 @@ impl Processor {
             }
         }
         self.v_reg[0xF] = vf_new;
+        Ok(())
     }
 
     fn clear_display(&mut self) {

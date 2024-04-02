@@ -5,9 +5,10 @@ use std::{
     env,
     fs::File,
     io::{BufReader, Read},
+    ops::{Range, RangeBounds},
 };
 
-const PIXEL_SIZE: f32 = 10.0;
+const PIXEL_SIZE: f32 = 20.0;
 
 struct Model {
     processor: Processor,

@@ -4,3 +4,5 @@ mod instruction;
 use instruction::Instruction;
 mod emu_err;
 use emu_err::EmuErr;
+mod memory;
+use memory::*;
