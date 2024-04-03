@@ -8,13 +8,12 @@ pub const DISPLAY_HEIGHT: usize = 0x20;
 
 pub struct Processor {
     pub memory: Memory,
-    stack: [u16; 0x10],
-    stack_pointer: u8,
-    v_reg: [u8; 0x10],
-    i_reg: u16,
+    stack: Stack,
+    v_reg: VReg,
+    i_reg: usize,
     delay_reg: u8,
-    sound_reg: u8,
-    pc: u16,
+    _sound_reg: u8,
+    pc: usize,
     pressed_keys: [bool; 0x10],
     display_buffer: Box<[BitVec]>,
 }
@@ -22,29 +21,24 @@ pub struct Processor {
 impl Processor {
     //Uses slice of bytes as program data.
     pub fn new(program: &[u8]) -> Result<Self, EmuErr> {
-        let mem = Memory::init_with(program)?;
+        let memory = Memory::init_with(program)?;
 
         Ok(Self {
-            memory: mem,
-            stack: [0; 0x10],
-            stack_pointer: 0,
-            v_reg: [0; 0x10],
+            memory,
+            stack: Stack::new(),
+            v_reg: VReg::new(),
             i_reg: 0,
             delay_reg: 0xFF,
-            sound_reg: 0xFF,
-            pc: PG_START as u16,
+            _sound_reg: 0xFF,
+            pc: PG_START,
             pressed_keys: [false; 0x10],
             display_buffer: vec![BitVec::from_elem(DISPLAY_HEIGHT, false); DISPLAY_WIDTH]
                 .into_boxed_slice(),
         })
     }
 
-    fn get_vreg(&mut self, index: u8) -> &mut u8 {
-        &mut self.v_reg[index as usize]
-    }
-
     pub fn execute_next(&mut self) -> Result<(), EmuErr> {
-        if self.pc as usize >= self.memory.len() {
+        if self.pc >= self.memory.len() {
             return Err(EmuErr::BadPc { pc: self.pc });
         }
 
@@ -61,15 +55,14 @@ impl Processor {
     }
 
     pub fn decode_and_execute(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
-        let x_reg_ref = self.get_vreg(instruction.x());
+        let x_reg_ref = self.v_reg.get_mut(instruction.x())?;
         let kk = instruction.kk();
         match instruction.high_nibble() {
             0x0 => {
                 if kk == 0xE0 {
                     self.clear_display();
                 } else if kk == 0xEE {
-                    self.stack_pointer -= 1;
-                    self.pc = self.stack[self.stack_pointer as usize]
+                    self.pc = self.stack.pop()?;
                 } else {
                     return Err(EmuErr::BadInstruction {
                         pc: self.pc,
@@ -79,8 +72,7 @@ impl Processor {
             }
             0x1 => self.pc = instruction.nnn(),
             0x2 => {
-                self.stack[self.stack_pointer as usize] = self.pc;
-                self.stack_pointer += 1;
+                self.stack.push(self.pc)?;
                 self.pc = instruction.nnn();
             }
             0x3 => {
@@ -94,7 +86,7 @@ impl Processor {
                 }
             }
             0x5 => {
-                if *x_reg_ref == *self.get_vreg(instruction.y()) {
+                if *x_reg_ref == *self.v_reg.get(instruction.y())? {
                     self.pc += 2;
                 }
             }
@@ -102,12 +94,12 @@ impl Processor {
             0x7 => *x_reg_ref = x_reg_ref.wrapping_add(instruction.kk()),
             0x8 => return self.instruction_0x8(instruction),
             0x9 => {
-                if *x_reg_ref != *self.get_vreg(instruction.y()) {
+                if *x_reg_ref != *self.v_reg.get(instruction.y())? {
                     self.pc += 2;
                 }
             }
             0xA => self.i_reg = instruction.nnn(),
-            0xB => self.pc = instruction.nnn() + *x_reg_ref as u16,
+            0xB => self.pc = instruction.nnn() + *x_reg_ref as usize,
             0xC => *x_reg_ref = thread_rng().gen_range(0u8..=255u8) % instruction.kk(),
             0xD => self.draw(instruction)?,
             0xE => {
@@ -141,48 +133,48 @@ impl Processor {
 
     #[inline]
     fn instruction_0x8(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
-        let y_reg_val = *self.get_vreg(instruction.y());
-        let x_reg_ref = self.get_vreg(instruction.x());
+        let y_reg_val = *self.v_reg.get(instruction.y())?;
+        let x_reg_ref = self.v_reg.get_mut(instruction.x())?;
         match instruction.low_nibble() {
             0x0 => {
                 *x_reg_ref = y_reg_val;
             }
             0x1 => {
                 *x_reg_ref |= y_reg_val;
-                self.v_reg[0xF] = 0;
+                *self.v_reg.get_mut(0xF)? = 0;
             }
             0x2 => {
                 *x_reg_ref &= y_reg_val;
-                self.v_reg[0xF] = 0;
+                *self.v_reg.get_mut(0xF)? = 0;
             }
             0x3 => {
                 *x_reg_ref ^= y_reg_val;
-                self.v_reg[0xF] = 0;
+                *self.v_reg.get_mut(0xF)? = 0;
             }
             0x4 => {
                 let did_wrap = x_reg_ref.checked_add(y_reg_val).is_none();
                 *x_reg_ref = x_reg_ref.wrapping_add(y_reg_val);
-                self.v_reg[0xF] = did_wrap.to_u8();
+                *self.v_reg.get_mut(0xF)? = did_wrap.to_u8();
             }
             0x5 => {
                 let didnt_wrap = x_reg_ref.checked_sub(y_reg_val).is_some();
                 *x_reg_ref = x_reg_ref.wrapping_sub(y_reg_val);
-                self.v_reg[0xF] = didnt_wrap.to_u8();
+                *self.v_reg.get_mut(0xF)? = didnt_wrap.to_u8();
             }
             0x6 => {
                 let lsb = *x_reg_ref & 0x1;
                 *x_reg_ref >>= 1;
-                self.v_reg[0xF] = lsb;
+                *self.v_reg.get_mut(0xF)? = lsb;
             }
             0x7 => {
                 let didnt_wrap = y_reg_val.checked_sub(*x_reg_ref).is_some();
                 *x_reg_ref = y_reg_val.wrapping_sub(*x_reg_ref);
-                self.v_reg[0xF] = didnt_wrap.to_u8();
+                *self.v_reg.get_mut(0xF)? = didnt_wrap.to_u8();
             }
             0xE => {
                 let hsb = *x_reg_ref >> 0x7;
                 *x_reg_ref <<= 1;
-                self.v_reg[0xF] = hsb;
+                *self.v_reg.get_mut(0xF)? = hsb;
             }
             _ => {
                 return Err(EmuErr::BadInstruction {
@@ -196,10 +188,10 @@ impl Processor {
 
     #[inline]
     fn instruction_0xf(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
-        let x_reg_val = *self.get_vreg(instruction.x());
+        let x_reg_val = *self.v_reg.get(instruction.x())?;
         match instruction.kk() {
             0x7 => {
-                *self.get_vreg(instruction.x()) = self.delay_reg;
+                *self.v_reg.get_mut(instruction.x())? = self.delay_reg;
             }
             0x0A => {
                 if !self.pressed_keys.contains(&true) {
@@ -208,19 +200,20 @@ impl Processor {
             }
             0x15 => self.delay_reg = x_reg_val,
             0x1E => {
-                self.v_reg[0xF] = self.i_reg.checked_add(x_reg_val as u16).is_none().to_u8();
-                self.i_reg = self.i_reg.wrapping_add(x_reg_val as u16);
+                *self.v_reg.get_mut(0xF)? =
+                    self.i_reg.checked_add(x_reg_val as usize).is_none().to_u8();
+                self.i_reg = self.i_reg.wrapping_add(x_reg_val as usize);
             }
-            0x29 => self.i_reg = (x_reg_val * 5) as u16,
+            0x29 => self.i_reg = (x_reg_val * 5) as usize,
             0x55 => {
-                let v_reg_slice = &self.v_reg[..=instruction.x() as usize];
+                let v_reg_slice = self.v_reg.slice(..=instruction.x())?;
                 let mem_slice = self.memory.slice_mut(self.i_reg..)?;
                 for (m, v) in mem_slice.iter_mut().zip(v_reg_slice.iter()) {
                     *m = *v;
                 }
             }
             0x65 => {
-                let v_reg_slice = &mut self.v_reg[..=instruction.x() as usize];
+                let v_reg_slice = self.v_reg.slice_mut(..=instruction.x())?;
                 let mem_slice = self.memory.slice(self.i_reg..)?;
                 for (v, m) in v_reg_slice.iter_mut().zip(mem_slice.iter()) {
                     *v = *m;
@@ -237,14 +230,12 @@ impl Processor {
     }
 
     fn draw(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
-        let v_reg_x = *self.get_vreg(instruction.x()) as usize;
-        let v_reg_y = *self.get_vreg(instruction.y()) as usize;
+        let v_reg_x = *self.v_reg.get(instruction.x())? as usize;
+        let v_reg_y = *self.v_reg.get(instruction.y())? as usize;
         let i_reg = self.i_reg;
         let mut vf_new = 0x0;
         //Slice of memory that will be used to draw from.
-        let mem_slice = self
-            .memory
-            .slice(i_reg..i_reg + instruction.low_nibble() as u16)?;
+        let mem_slice = self.memory.slice(i_reg..i_reg + instruction.low_nibble())?;
         for (i, byte) in mem_slice.iter().enumerate() {
             //Loops through each bit in byte and XORs bit onto display buffer
             for j in 0usize..8usize {
@@ -269,7 +260,7 @@ impl Processor {
                 self.display_buffer[x_coord].set(y_coord, !pixel);
             }
         }
-        self.v_reg[0xF] = vf_new;
+        *self.v_reg.get_mut(0xF)? = vf_new;
         Ok(())
     }
 
@@ -280,7 +271,7 @@ impl Processor {
     }
 
     pub fn get_display_buffer(&self) -> &[BitVec] {
-        &*self.display_buffer
+        &self.display_buffer
     }
 
     pub fn set_key(&mut self, key: usize, val: bool) {

@@ -10,18 +10,14 @@ impl Instruction {
         Self { instruction }
     }
 
-    pub fn get_instruction(&self) -> u16 {
-        self.instruction
-    }
-
     /*
      * All bellow methods are used to index certain portions of the instruction.
      * Inlined as to not impose overhead of function call (methods are a single expression)
      */
 
     #[inline]
-    pub fn nnn(&self) -> u16 {
-        self.instruction & 0xFFF
+    pub fn nnn(&self) -> usize {
+        (self.instruction & 0xFFF) as usize
     }
 
     #[inline]
@@ -30,23 +26,23 @@ impl Instruction {
     }
 
     #[inline]
-    pub fn x(&self) -> u8 {
-        ((self.instruction >> 8) & 0xF) as u8
+    pub fn x(&self) -> usize {
+        ((self.instruction >> 8) & 0xF) as usize
     }
 
     #[inline]
-    pub fn y(&self) -> u8 {
-        ((self.instruction >> 4) & 0xF) as u8
+    pub fn y(&self) -> usize {
+        ((self.instruction >> 4) & 0xF) as usize
     }
 
     #[inline]
-    pub fn low_nibble(&self) -> u8 {
-        (self.instruction & 0xF) as u8
+    pub fn low_nibble(&self) -> usize {
+        (self.instruction & 0xF) as usize
     }
 
     #[inline]
-    pub fn high_nibble(&self) -> u8 {
-        ((self.instruction >> 12) & 0xF) as u8
+    pub fn high_nibble(&self) -> usize {
+        ((self.instruction >> 12) & 0xF) as usize
     }
 }
 

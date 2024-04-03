@@ -4,10 +4,12 @@ use std::{fmt, ops::Range};
 #[derive(Debug)]
 pub enum EmuErr {
     PgSize { pg_len: usize, max_len: usize },
-    BadAddr { addr: u16 },
+    BadMemIndex { index: usize },
     BadMemSlice { range: Range<usize> },
-    BadInstruction { pc: u16, instruction: Instruction },
-    BadPc { pc: u16 },
+    BadInstruction { pc: usize, instruction: Instruction },
+    BadPc { pc: usize },
+    BadPush { sp: usize },
+    BadPop { sp: usize },
 }
 
 impl fmt::Display for EmuErr {
@@ -21,8 +23,8 @@ impl fmt::Display for EmuErr {
                     pg_len, max_len
                 )
             }
-            BadAddr { addr } => {
-                write!(f, "Attempted to acess address: {:#04x}", addr)
+            BadMemIndex { index } => {
+                write!(f, "Attempted to acess address: {:#04x}", index)
             }
             BadMemSlice { range } => {
                 write!(
@@ -36,6 +38,12 @@ impl fmt::Display for EmuErr {
             }
             BadPc { pc } => {
                 write!(f, "pc out of bounds at {:#04x}", pc)
+            }
+            BadPush { sp } => {
+                write!(f, "Attempted to push with sp: {:#04x}", sp)
+            }
+            BadPop { sp } => {
+                write!(f, "Attempted to pop with sp: {:#04x}", sp)
             }
         }
     }

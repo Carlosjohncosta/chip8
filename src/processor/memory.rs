@@ -1,6 +1,54 @@
+use super::emu_err::EmuErr;
 use std::ops::{Range, RangeBounds};
 
-use super::emu_err::EmuErr;
+pub trait Sliceable {
+    type Output;
+    fn len(&self) -> usize;
+    fn inner_slice(&self) -> &[Self::Output];
+    fn inner_slice_mut(&mut self) -> &mut [Self::Output];
+    fn bad_index_err(addr: usize) -> EmuErr;
+    fn bad_slice_err(range: Range<usize>) -> EmuErr;
+
+    fn get_range(&self, range: impl RangeBounds<usize>) -> Range<usize> {
+        let len = self.len();
+        let start = match range.start_bound() {
+            std::ops::Bound::Included(&start) => start as usize,
+            std::ops::Bound::Excluded(&start) => start as usize + 1,
+            std::ops::Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            std::ops::Bound::Included(&end) => end as usize + 1,
+            std::ops::Bound::Excluded(&end) => end as usize,
+            std::ops::Bound::Unbounded => len,
+        };
+        start..end
+    }
+    fn get(&self, addr: usize) -> Result<&Self::Output, EmuErr> {
+        self.inner_slice()
+            .get(addr)
+            .ok_or(Self::bad_index_err(addr))
+    }
+
+    fn get_mut(&mut self, addr: usize) -> Result<&mut Self::Output, EmuErr> {
+        self.inner_slice_mut()
+            .get_mut(addr)
+            .ok_or(Self::bad_index_err(addr))
+    }
+
+    fn slice(&self, range: impl RangeBounds<usize>) -> Result<&[Self::Output], EmuErr> {
+        let range = self.get_range(range);
+        self.inner_slice()
+            .get(range.clone())
+            .ok_or(Self::bad_slice_err(range))
+    }
+
+    fn slice_mut(&mut self, range: impl RangeBounds<usize>) -> Result<&mut [Self::Output], EmuErr> {
+        let range = self.get_range(range);
+        self.inner_slice_mut()
+            .get_mut(range.clone())
+            .ok_or(Self::bad_slice_err(range))
+    }
+}
 
 const MEM_SIZE: usize = 0x1000;
 const PG_START: usize = 0x200;
@@ -55,54 +103,17 @@ impl Memory {
     }
 }
 
-pub trait SliceByU16 {
-    type Output;
-    fn len(&self) -> usize;
-    fn inner_slice(&self) -> &[Self::Output];
-    fn inner_slice_mut(&mut self) -> &mut [Self::Output];
-    fn get_range(&self, range: impl RangeBounds<u16>) -> Range<usize> {
-        let len = self.len();
-        let start = match range.start_bound() {
-            std::ops::Bound::Included(&start) => start as usize,
-            std::ops::Bound::Excluded(&start) => start as usize + 1,
-            std::ops::Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            std::ops::Bound::Included(&end) => end as usize + 1,
-            std::ops::Bound::Excluded(&end) => end as usize,
-            std::ops::Bound::Unbounded => len,
-        };
-        start..end
-    }
-    fn get(&self, addr: u16) -> Result<&Self::Output, EmuErr> {
-        self.inner_slice()
-            .get(addr as usize)
-            .ok_or(EmuErr::BadAddr { addr })
-    }
-
-    fn get_mut(&mut self, addr: u16) -> Result<&mut Self::Output, EmuErr> {
-        self.inner_slice_mut()
-            .get_mut(addr as usize)
-            .ok_or(EmuErr::BadAddr { addr })
-    }
-
-    fn slice(&self, range: impl RangeBounds<u16>) -> Result<&[Self::Output], EmuErr> {
-        let range = self.get_range(range);
-        self.inner_slice()
-            .get(range.clone())
-            .ok_or(EmuErr::BadMemSlice { range })
-    }
-
-    fn slice_mut(&mut self, range: impl RangeBounds<u16>) -> Result<&mut [Self::Output], EmuErr> {
-        let range = self.get_range(range);
-        self.inner_slice_mut()
-            .get_mut(range.clone())
-            .ok_or(EmuErr::BadMemSlice { range })
-    }
-}
-
-impl SliceByU16 for Memory {
+impl Sliceable for Memory {
     type Output = u8;
+
+    fn bad_index_err(addr: usize) -> EmuErr {
+        EmuErr::BadMemIndex { index: addr }
+    }
+
+    fn bad_slice_err(range: Range<usize>) -> EmuErr {
+        EmuErr::BadMemSlice { range }
+    }
+
     fn len(&self) -> usize {
         self.memory.len()
     }
@@ -113,5 +124,73 @@ impl SliceByU16 for Memory {
 
     fn inner_slice_mut(&mut self) -> &mut [Self::Output] {
         &mut self.memory
+    }
+}
+
+pub struct VReg {
+    v_reg: [u8; 0x10],
+}
+
+impl VReg {
+    pub fn new() -> Self {
+        Self { v_reg: [0; 0x10] }
+    }
+}
+
+impl Sliceable for VReg {
+    type Output = u8;
+
+    fn bad_index_err(addr: usize) -> EmuErr {
+        EmuErr::BadMemIndex { index: addr }
+    }
+
+    fn bad_slice_err(range: Range<usize>) -> EmuErr {
+        EmuErr::BadMemSlice { range }
+    }
+
+    fn len(&self) -> usize {
+        self.v_reg.len()
+    }
+
+    fn inner_slice(&self) -> &[Self::Output] {
+        &self.v_reg
+    }
+
+    fn inner_slice_mut(&mut self) -> &mut [Self::Output] {
+        &mut self.v_reg
+    }
+}
+
+const STACK_LENGTH: usize = 0x10;
+
+pub struct Stack {
+    stack: [usize; STACK_LENGTH],
+    sp: usize,
+}
+
+impl Stack {
+    pub fn new() -> Self {
+        Stack {
+            stack: [0; STACK_LENGTH],
+            sp: 0,
+        }
+    }
+
+    pub fn push(&mut self, val: usize) -> Result<(), EmuErr> {
+        if self.sp >= STACK_LENGTH {
+            return Err(EmuErr::BadPush { sp: self.sp });
+        }
+        self.stack[self.sp] = val;
+        self.sp += 1;
+        Ok(())
+    }
+
+    pub fn pop(&mut self) -> Result<usize, EmuErr> {
+        if self.sp == 0 {
+            return Err(EmuErr::BadPop { sp: self.sp });
+        }
+        self.sp -= 1;
+        let val = self.stack[self.sp];
+        Ok(val)
     }
 }
