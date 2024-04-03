@@ -1,110 +1,115 @@
-mod processor;
-use nannou::prelude::*;
-use processor::*;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 use std::{
     env,
     fs::File,
     io::{BufReader, Read},
 };
+mod processor;
+use processor::{Processor, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-const PIXEL_SIZE: f32 = 20.0;
+const PIXEL_SIZE: u32 = 20;
 
-struct Model {
-    processor: Processor,
+fn main() {
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let window = video_subsystem
+        .window(
+            "Rust Chip-8",
+            DISPLAY_WIDTH as u32 * PIXEL_SIZE,
+            DISPLAY_HEIGHT as u32 * PIXEL_SIZE,
+        )
+        .position_centered()
+        .build()
+        .unwrap();
+
+    let mut canvas = window.into_canvas().build().unwrap();
+    let mut event_pump = sdl_context.event_pump().unwrap();
+
+    let program = load_program_bytes();
+    let mut processor = Processor::new(&program).unwrap();
+
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(key), ..
+                } => {
+                    if let Some(key) = match_key(key) {
+                        processor.set_key(key, true)
+                    }
+                }
+                Event::KeyUp {
+                    keycode: Some(key), ..
+                } => {
+                    if let Some(key) = match_key(key) {
+                        processor.set_key(key, false)
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.clear();
+        canvas.set_draw_color(Color::RGB(0, 255, 0));
+
+        let display_buffer = processor.get_display_buffer();
+        for (x, collumn) in display_buffer.iter().enumerate() {
+            for (y, pixel) in collumn.iter().enumerate() {
+                if pixel {
+                    canvas
+                        .fill_rect(Rect::new(
+                            x as i32 * PIXEL_SIZE as i32,
+                            y as i32 * PIXEL_SIZE as i32,
+                            PIXEL_SIZE,
+                            PIXEL_SIZE,
+                        ))
+                        .unwrap();
+                }
+            }
+        }
+        _ = processor.execute_next();
+        canvas.present();
+    }
 }
 
-fn model(_app: &App) -> Model {
+fn load_program_bytes() -> Box<[u8]> {
     let args: Vec<String> = env::args().collect();
     let path = format!("rom/{}", args.get(1).expect("No arguments give for ROM."));
     let f = File::open(path).expect("File not found");
     let mut reader = BufReader::new(f);
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer).unwrap();
-    Model {
-        processor: Processor::new(&buffer).unwrap(),
-    }
+    buffer.into_boxed_slice()
 }
 
-fn update(_app: &App, model: &mut Model, _update: Update) {
-    model.processor.dec_delay_reg();
-    for _ in 0..10 {
-        if let Err(err) = model.processor.execute_next() {
-            println!("{err}")
-        }
-    }
-}
-
-fn view(app: &App, model: &Model, frame: Frame) {
-    let draw = app.draw();
-    let win = app.window_rect();
-    let display_buffer = model.processor.get_display_buffer();
-    draw.background().color(BLACK);
-    for (x, collumn) in display_buffer.iter().enumerate() {
-        for (y, pixel) in collumn.iter().enumerate() {
-            if pixel {
-                let square = Rect::from_w_h(PIXEL_SIZE, PIXEL_SIZE)
-                    .top_left_of(win)
-                    .shift_x(x as f32 * PIXEL_SIZE)
-                    .shift_y(-(y as f32) * PIXEL_SIZE);
-                draw.rect().xy(square.xy()).wh(square.wh()).color(GREEN);
-            }
-        }
-    }
-    draw.to_frame(app, &frame).unwrap()
-}
-
-fn event(_app: &App, model: &mut Model, event: Event) {
-    if let Event::WindowEvent {
-        id: _,
-        simple: Some(event),
-    } = event
-    {
-        match event {
-            WindowEvent::KeyPressed(key) => {
-                if let Some(key) = match_key(key) {
-                    model.processor.set_key(key, true)
-                }
-            }
-            WindowEvent::KeyReleased(key) => {
-                if let Some(key) = match_key(key) {
-                    model.processor.set_key(key, false)
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn match_key(key: Key) -> Option<usize> {
+fn match_key(key: Keycode) -> Option<usize> {
     match key {
-        Key::Key1 => Some(0x1),
-        Key::Key2 => Some(0x2),
-        Key::Key3 => Some(0x3),
-        Key::Key4 => Some(0xC),
-        Key::Q => Some(0x4),
-        Key::W => Some(0x5),
-        Key::E => Some(0x6),
-        Key::R => Some(0xD),
-        Key::A => Some(0x7),
-        Key::S => Some(0x8),
-        Key::D => Some(0x9),
-        Key::F => Some(0xE),
-        Key::Z => Some(0xA),
-        Key::X => Some(0x0),
-        Key::C => Some(0xB),
-        Key::V => Some(0xF),
+        Keycode::Kp1 => Some(0x1),
+        Keycode::Kp2 => Some(0x2),
+        Keycode::Kp3 => Some(0x3),
+        Keycode::Kp4 => Some(0xC),
+        Keycode::Q => Some(0x4),
+        Keycode::W => Some(0x5),
+        Keycode::E => Some(0x6),
+        Keycode::R => Some(0xD),
+        Keycode::A => Some(0x7),
+        Keycode::S => Some(0x8),
+        Keycode::D => Some(0x9),
+        Keycode::F => Some(0xE),
+        Keycode::Z => Some(0xA),
+        Keycode::X => Some(0x0),
+        Keycode::C => Some(0xB),
+        Keycode::V => Some(0xF),
         _ => None,
     }
-}
-
-fn main() {
-    nannou::app(model)
-        .size(
-            DISPLAY_WIDTH as u32 * PIXEL_SIZE as u32,
-            DISPLAY_HEIGHT as u32 * PIXEL_SIZE as u32,
-        )
-        .simple_window(view)
-        .event(event)
-        .update(update)
-        .run();
 }
