@@ -6,9 +6,10 @@ use std::{
     env,
     fs::File,
     io::{BufReader, Read},
+    thread, time,
 };
-mod processor;
-use processor::{Processor, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+mod chip_8;
+use chip_8::{Chip8, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 const PIXEL_SIZE: u32 = 20;
 
@@ -30,7 +31,7 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let program = load_program_bytes();
-    let mut processor = Processor::new(&program).unwrap();
+    let mut chip_8 = Chip8::new(&program).unwrap();
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -44,14 +45,14 @@ fn main() {
                     keycode: Some(key), ..
                 } => {
                     if let Some(key) = match_key(key) {
-                        processor.set_key(key, true)
+                        chip_8.set_key(key, true)
                     }
                 }
                 Event::KeyUp {
                     keycode: Some(key), ..
                 } => {
                     if let Some(key) = match_key(key) {
-                        processor.set_key(key, false)
+                        chip_8.set_key(key, false)
                     }
                 }
                 _ => {}
@@ -62,7 +63,7 @@ fn main() {
         canvas.clear();
         canvas.set_draw_color(Color::RGB(0, 255, 0));
 
-        let display_buffer = processor.get_display_buffer();
+        let display_buffer = chip_8.get_display_buffer();
         for (x, collumn) in display_buffer.iter().enumerate() {
             for (y, pixel) in collumn.iter().enumerate() {
                 if pixel {
@@ -77,8 +78,15 @@ fn main() {
                 }
             }
         }
-        _ = processor.execute_next();
+        chip_8.dec_delay_reg();
+        for _ in 0..10 {
+            let emu_res = chip_8.execute_next();
+            if let Err(err) = emu_res {
+                println!("{err}");
+            }
+        }
         canvas.present();
+        thread::sleep(time::Duration::from_millis(16));
     }
 }
 

@@ -1,36 +1,25 @@
 use super::instruction::Instruction;
-use std::{fmt, ops::Range};
+use std::fmt;
 
 #[derive(Debug)]
 pub enum EmuErr {
-    PgSize { pg_len: usize, max_len: usize },
-    BadMemIndex { index: usize },
-    BadMemSlice { range: Range<usize> },
-    BadInstruction { pc: usize, instruction: Instruction },
-    BadPc { pc: usize },
+    BadPgSize { pg_len: usize, max_len: usize },
+    BadInstruction { pc: u16, instruction: Instruction },
+    BadPc { pc: u16 },
     BadPush { sp: usize },
     BadPop { sp: usize },
+    BadIregSet { ireg: u16, offset: u16 },
 }
 
 impl fmt::Display for EmuErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use EmuErr::*;
         match self {
-            PgSize { pg_len, max_len } => {
+            BadPgSize { pg_len, max_len } => {
                 write!(
                     f,
                     "Program of length {:#04x} too large for available mem {:#04x}",
                     pg_len, max_len
-                )
-            }
-            BadMemIndex { index } => {
-                write!(f, "Attempted to acess address: {:#04x}", index)
-            }
-            BadMemSlice { range } => {
-                write!(
-                    f,
-                    "Attempted to slice memory with bounds: {:#04x}..={:#04x}",
-                    range.start, range.end
                 )
             }
             BadInstruction { pc, instruction } => {
@@ -44,6 +33,9 @@ impl fmt::Display for EmuErr {
             }
             BadPop { sp } => {
                 write!(f, "Attempted to pop with sp: {:#04x}", sp)
+            }
+            BadIregSet { ireg, offset } => {
+                write!(f, "Attempted to add {:#04x} to ireg {:#04x}", ireg, offset)
             }
         }
     }

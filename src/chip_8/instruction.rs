@@ -16,8 +16,8 @@ impl Instruction {
      */
 
     #[inline]
-    pub fn nnn(&self) -> usize {
-        (self.instruction & 0xFFF) as usize
+    pub fn nnn(&self) -> u16 {
+        (self.instruction & 0xFFF) as u16
     }
 
     #[inline]
@@ -25,6 +25,7 @@ impl Instruction {
         (self.instruction & 0xFF) as u8
     }
 
+    // x & y returned as usize as they are always used as indicies.
     #[inline]
     pub fn x(&self) -> usize {
         ((self.instruction >> 8) & 0xF) as usize
@@ -36,13 +37,13 @@ impl Instruction {
     }
 
     #[inline]
-    pub fn low_nibble(&self) -> usize {
-        (self.instruction & 0xF) as usize
+    pub fn low_nibble(&self) -> u8 {
+        (self.instruction & 0xF) as u8
     }
 
     #[inline]
-    pub fn high_nibble(&self) -> usize {
-        ((self.instruction >> 12) & 0xF) as usize
+    pub fn high_nibble(&self) -> u8 {
+        ((self.instruction >> 12) & 0xF) as u8
     }
 }
 
