@@ -2,11 +2,11 @@ use super::*;
 use bit_vec::*;
 use rand::{thread_rng, Rng};
 
-pub const DISPLAY_WIDTH: usize = 0x40;
-pub const DISPLAY_HEIGHT: usize = 0x20;
+pub const DISPLAY_WIDTH: usize = 0x80;
+pub const DISPLAY_HEIGHT: usize = 0x40;
 const PG_START: usize = 0x200;
 const MEM_SIZE: usize = 0x1000;
-const FONT_DATA: [u8; 0x50] = [
+const CHIP8_FONT: [u8; 0x50] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -25,6 +25,25 @@ const FONT_DATA: [u8; 0x50] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
+const SCHIP_FONT: [u8; 0xA0] = [
+    0xFF, 0xFF, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, // 0
+    0x0C, 0x0C, 0x3C, 0x3C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3F, 0x3F, // 1
+    0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, // 2
+    0xFF, 0xFF, 0x07, 0x07, 0xFF, 0xFF, 0x07, 0x07, 0xFF, 0xFF, // 3
+    0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, 0x03, 0x03, 0x03, 0x03, // 4
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, // 5
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, // 6
+    0xFF, 0xFF, 0x03, 0x03, 0x0C, 0x0C, 0x30, 0x30, 0x30, 0x30, // 7
+    0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, // 8
+    0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, // 9
+    0xFF, 0xFF, 0xC3, 0xC3, 0xFF, 0xFF, 0xC3, 0xC3, 0xC3, 0xC3, // A
+    0xFC, 0xFC, 0xC3, 0xC3, 0xFC, 0xFC, 0xC3, 0xC3, 0xFC, 0xFC, // B
+    0xFF, 0xFF, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xFF, 0xFF, // C
+    0xFC, 0xFC, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFC, 0xFC, // D
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, // E
+    0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xC0, 0xC0, // F
+];
+
 pub struct Chip8 {
     pub memory: [u8; 0x1000],
     stack: Stack,
@@ -35,6 +54,7 @@ pub struct Chip8 {
     pc: u16,
     pressed_keys: [bool; 0x10],
     display_buffer: Box<[BitVec]>,
+    pub high_res: bool,
 }
 
 impl Chip8 {
@@ -49,17 +69,22 @@ impl Chip8 {
         //Checks if program fits into memory.
         let mut memory = [0u8; MEM_SIZE];
 
-        //Loads number sprites into memory, from 0x0 to 0x50.
-        for (m_byte, f_byte) in memory.iter_mut().zip(FONT_DATA.iter()) {
-            *m_byte = *f_byte;
+        //Loads Chip8 fonts into memory, from 0x0 to 0x50.
+        for (m_byte, &f_byte) in memory.iter_mut().zip(CHIP8_FONT.iter()) {
+            *m_byte = f_byte;
+        }
+
+        //Loads Schip fonts into memory, from 0x50.
+        for (m_byte, &f_byte) in memory[CHIP8_FONT.len()..].iter_mut().zip(SCHIP_FONT.iter()) {
+            *m_byte = f_byte;
         }
 
         //Slize of memory that will hold the program, typically starting at 0x200.
         let mem_pg_slice = &mut memory[PG_START..];
 
         //Inserts program into mem slice.
-        for (m_byte, p_byte) in mem_pg_slice.iter_mut().zip(program.iter()) {
-            *m_byte = *p_byte;
+        for (m_byte, &p_byte) in mem_pg_slice.iter_mut().zip(program.iter()) {
+            *m_byte = p_byte;
         }
 
         Ok(Self {
@@ -73,6 +98,7 @@ impl Chip8 {
             pressed_keys: [false; 0x10],
             display_buffer: vec![BitVec::from_elem(DISPLAY_HEIGHT, false); DISPLAY_WIDTH]
                 .into_boxed_slice(),
+            high_res: false,
         })
     }
 
@@ -107,18 +133,18 @@ impl Chip8 {
         let x_reg_ref = &mut self.v_reg[instruction.x()];
         let kk = instruction.kk();
         match instruction.high_nibble() {
-            0x0 => {
-                if kk == 0xE0 {
-                    self.clear_display();
-                } else if kk == 0xEE {
-                    self.pc = self.stack.pop()?;
-                } else {
+            0x0 => match kk {
+                0xE0 => self.clear_display(),
+                0xEE => self.pc = self.stack.pop()?,
+                0xFE => self.high_res = false,
+                0xFF => self.high_res = true,
+                _ => {
                     return Err(EmuErr::BadInstruction {
                         pc: self.pc,
                         instruction,
                     });
                 }
-            }
+            },
             0x1 => self.pc = instruction.nnn(),
             0x2 => {
                 self.stack.push(self.pc)?;
@@ -237,7 +263,7 @@ impl Chip8 {
             0x7 => {
                 self.v_reg[instruction.x()] = self.delay_reg;
             }
-            0x0A => {
+            0xA => {
                 if !self.pressed_keys.contains(&true) {
                     self.pc -= 2;
                 }
@@ -252,6 +278,7 @@ impl Chip8 {
                 self.i_reg += x_reg_val;
             }
             0x29 => self.i_reg = (x_reg_val * 5) as u16,
+            0x30 => self.i_reg = (0x50 + x_reg_val * 10) as u16,
             0x33 => {
                 self.check_ireg_offset(2)?;
                 let bcd = u16_to_bcd_array(x_reg_val);
@@ -262,16 +289,18 @@ impl Chip8 {
             0x55 => {
                 let v_reg_slice = &self.v_reg[..=instruction.x()];
                 let mem_slice = &mut self.memory[self.i_reg as usize..];
-                for (m, v) in mem_slice.iter_mut().zip(v_reg_slice.iter()) {
-                    *m = *v;
+                for (m, &v) in mem_slice.iter_mut().zip(v_reg_slice.iter()) {
+                    *m = v;
                 }
+                //self.i_reg += 1;
             }
             0x65 => {
                 let v_reg_slice = &mut self.v_reg[..=instruction.x()];
                 let mem_slice = &self.memory[self.i_reg as usize..];
-                for (v, m) in v_reg_slice.iter_mut().zip(mem_slice.iter()) {
-                    *v = *m;
+                for (v, &m) in v_reg_slice.iter_mut().zip(mem_slice.iter()) {
+                    *v = m;
                 }
+                //self.i_reg += 1;
             }
             _ => {
                 return Err(EmuErr::BadInstruction {
@@ -289,14 +318,26 @@ impl Chip8 {
         let i_reg = self.i_reg as usize;
         let mut vf_new = 0x0;
         //Slice of memory that will be used to draw from.
-        self.check_ireg_offset(instruction.low_nibble() as u16)?;
-        let mem_slice = &self.memory[i_reg..i_reg + instruction.low_nibble() as usize];
+        let sprite16 = self.high_res && instruction.low_nibble() == 0;
+        let mem_slice = if sprite16 {
+            self.check_ireg_offset(0x20)?;
+            &self.memory[i_reg..i_reg + 0x20]
+        } else {
+            self.check_ireg_offset(instruction.low_nibble() as u16)?;
+            &self.memory[i_reg..i_reg + instruction.low_nibble() as usize]
+        };
+        let (mut x_wrap, mut y_wrap) = (DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        if !self.high_res {
+            x_wrap /= 2;
+            y_wrap /= 2;
+        }
         for (i, byte) in mem_slice.iter().enumerate() {
             //Loops through each bit in byte and XORs bit onto display buffer
+            let y_offset = if sprite16 { i / 2 } else { i };
+            let y_coord = (v_reg_y + y_offset) % y_wrap;
             for j in 0usize..8usize {
-                //Coordinates mod size of axis for wrapping behaviour.
-                let x_coord = (v_reg_x + j) % DISPLAY_WIDTH;
-                let y_coord = (v_reg_y + i) % DISPLAY_HEIGHT;
+                let x_offset = if sprite16 { j + 8 * (i % 2) } else { j };
+                let x_coord = (v_reg_x + x_offset) % x_wrap;
                 let curr_bit = (byte >> (7 - j)) & 0x1 == 0x1;
 
                 //Do nothing if the current bit is 0

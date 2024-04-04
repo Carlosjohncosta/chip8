@@ -11,7 +11,7 @@ use std::{
 mod chip_8;
 use chip_8::{Chip8, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-const PIXEL_SIZE: u32 = 20;
+const PIXEL_SIZE: u32 = 10;
 
 fn main() {
     let sdl_context = sdl2::init().unwrap();
@@ -64,22 +64,27 @@ fn main() {
         canvas.set_draw_color(Color::RGB(0, 255, 0));
 
         let display_buffer = chip_8.get_display_buffer();
+        let px_size = if chip_8.high_res {
+            PIXEL_SIZE
+        } else {
+            PIXEL_SIZE * 2
+        } as i32;
         for (x, collumn) in display_buffer.iter().enumerate() {
             for (y, pixel) in collumn.iter().enumerate() {
                 if pixel {
                     canvas
                         .fill_rect(Rect::new(
-                            x as i32 * PIXEL_SIZE as i32,
-                            y as i32 * PIXEL_SIZE as i32,
-                            PIXEL_SIZE,
-                            PIXEL_SIZE,
+                            x as i32 * px_size,
+                            y as i32 * px_size,
+                            px_size as u32,
+                            px_size as u32,
                         ))
                         .unwrap();
                 }
             }
         }
         chip_8.dec_delay_reg();
-        for _ in 0..10 {
+        for _ in 0..20 {
             let emu_res = chip_8.execute_next();
             if let Err(err) = emu_res {
                 println!("{err}");

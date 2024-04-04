@@ -12,14 +12,16 @@
                 "args": [
                     "build",
                     "--bin=chip8",
-                    "--package=chip8"
+                    "--package=chip8",
                 ],
                 "filter": {
                     "name": "chip8",
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": [
+                "-- binding.ch8"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {

@@ -35,7 +35,7 @@ impl fmt::Display for EmuErr {
                 write!(f, "Attempted to pop with sp: {:#04x}", sp)
             }
             BadIregSet { ireg, offset } => {
-                write!(f, "Attempted to add {:#04x} to ireg {:#04x}", ireg, offset)
+                write!(f, "Attempted to add {:#04x} to ireg {:#04x}", offset, ireg)
             }
         }
     }
