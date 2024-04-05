@@ -9,7 +9,7 @@ use std::{
     thread, time,
 };
 mod chip_8;
-use chip_8::{Chip8, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use chip_8::{Chip8, Chip8Builder, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 const PIXEL_SIZE: u32 = 10;
 
@@ -31,7 +31,12 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let program = load_program_bytes();
-    let mut chip_8 = Chip8::new(&program).unwrap();
+    let mut chip_8 = Chip8Builder::new()
+        .with_program(&program)
+        .vf_reset_quirk()
+        .jumping_quirk()
+        .build()
+        .unwrap();
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -84,7 +89,7 @@ fn main() {
             }
         }
         chip_8.dec_delay_reg();
-        for _ in 0..20 {
+        for _ in 0..1000 {
             let emu_res = chip_8.execute_next();
             if let Err(err) = emu_res {
                 println!("{err}");

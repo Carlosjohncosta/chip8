@@ -44,7 +44,52 @@ const SCHIP_FONT: [u8; 0xA0] = [
     0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, 0xC0, 0xC0, 0xC0, 0xC0, // F
 ];
 
+struct Quirks {
+    vf_reset_quirk: bool,
+    jumping_quirk: bool,
+}
+
+pub struct Chip8Builder<'a> {
+    program: Option<&'a [u8]>,
+    quirks: Quirks,
+}
+
+impl<'a> Chip8Builder<'a> {
+    pub fn new() -> Self {
+        Self {
+            program: None,
+            quirks: Quirks {
+                vf_reset_quirk: false,
+                jumping_quirk: false,
+            },
+        }
+    }
+
+    pub fn with_program(mut self, program: &'a [u8]) -> Self {
+        self.program = Some(program);
+        self
+    }
+
+    pub fn vf_reset_quirk(mut self) -> Self {
+        self.quirks.vf_reset_quirk = true;
+        self
+    }
+
+    pub fn jumping_quirk(mut self) -> Self {
+        self.quirks.jumping_quirk = true;
+        self
+    }
+
+    pub fn build(self) -> Result<Chip8, EmuErr> {
+        let program = self
+            .program
+            .expect("Program must be loaded to build emulator");
+        Chip8::new(self.quirks, program)
+    }
+}
+
 pub struct Chip8 {
+    quirks: Quirks,
     pub memory: [u8; 0x1000],
     stack: Stack,
     v_reg: [u8; 0x10],
@@ -59,7 +104,7 @@ pub struct Chip8 {
 
 impl Chip8 {
     //Uses slice of bytes as program data.
-    pub fn new(program: &[u8]) -> Result<Self, EmuErr> {
+    fn new(quirks: Quirks, program: &[u8]) -> Result<Self, EmuErr> {
         let pg_len = program.len();
         let max_len = MEM_SIZE - PG_START;
         if pg_len > max_len {
@@ -88,11 +133,12 @@ impl Chip8 {
         }
 
         Ok(Self {
+            quirks,
             memory,
             stack: Stack::new(),
             v_reg: [0; 0x10],
             i_reg: 0,
-            delay_reg: 0xFF,
+            delay_reg: 0x0,
             _sound_reg: 0xFF,
             pc: PG_START as u16,
             pressed_keys: [false; 0x10],
@@ -211,15 +257,21 @@ impl Chip8 {
             }
             0x1 => {
                 *x_reg_ref |= y_reg_val;
-                self.v_reg[0xF] = 0;
+                if self.quirks.vf_reset_quirk {
+                    self.v_reg[0xF] = 0;
+                }
             }
             0x2 => {
                 *x_reg_ref &= y_reg_val;
-                self.v_reg[0xF] = 0;
+                if self.quirks.vf_reset_quirk {
+                    self.v_reg[0xF] = 0;
+                }
             }
             0x3 => {
                 *x_reg_ref ^= y_reg_val;
-                self.v_reg[0xF] = 0;
+                if self.quirks.vf_reset_quirk {
+                    self.v_reg[0xF] = 0;
+                }
             }
             0x4 => {
                 let did_wrap = x_reg_ref.checked_add(y_reg_val).is_none();
@@ -292,7 +344,9 @@ impl Chip8 {
                 for (m, &v) in mem_slice.iter_mut().zip(v_reg_slice.iter()) {
                     *m = v;
                 }
-                //self.i_reg += 1;
+                if self.quirks.jumping_quirk {
+                    self.i_reg += 1;
+                }
             }
             0x65 => {
                 let v_reg_slice = &mut self.v_reg[..=instruction.x()];
@@ -300,7 +354,9 @@ impl Chip8 {
                 for (v, &m) in v_reg_slice.iter_mut().zip(mem_slice.iter()) {
                     *v = m;
                 }
-                //self.i_reg += 1;
+                if self.quirks.jumping_quirk {
+                    self.i_reg += 1;
+                }
             }
             _ => {
                 return Err(EmuErr::BadInstruction {
