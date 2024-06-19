@@ -17,7 +17,7 @@ impl Instruction {
 
     #[inline]
     pub fn nnn(&self) -> u16 {
-        (self.instruction & 0xFFF) as u16
+        self.instruction & 0xFFF
     }
 
     #[inline]

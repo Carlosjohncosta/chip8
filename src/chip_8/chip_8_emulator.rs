@@ -6,7 +6,8 @@ pub const DISPLAY_WIDTH: usize = 0x80;
 pub const DISPLAY_HEIGHT: usize = 0x40;
 const PG_START: usize = 0x200;
 const MEM_SIZE: usize = 0x1000;
-const CHIP8_FONT: [u8; 0x50] = [
+const FONT_DATA: [u8; 0xF0] = [
+    //CHIP8 fonts
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -23,9 +24,7 @@ const CHIP8_FONT: [u8; 0x50] = [
     0xE0, 0x90, 0x90, 0x90, 0xE0, // D
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
-];
-
-const SCHIP_FONT: [u8; 0xA0] = [
+    //SCHIP fonts.
     0xFF, 0xFF, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, // 0
     0x0C, 0x0C, 0x3C, 0x3C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3F, 0x3F, // 1
     0xFF, 0xFF, 0x03, 0x03, 0xFF, 0xFF, 0xC0, 0xC0, 0xFF, 0xFF, // 2
@@ -70,12 +69,12 @@ impl<'a> Chip8Builder<'a> {
         self
     }
 
-    pub fn vf_reset_quirk(mut self) -> Self {
+    pub fn with_vf_reset_quirk(mut self) -> Self {
         self.quirks.vf_reset_quirk = true;
         self
     }
 
-    pub fn jumping_quirk(mut self) -> Self {
+    pub fn with_jumping_quirk(mut self) -> Self {
         self.quirks.jumping_quirk = true;
         self
     }
@@ -108,19 +107,14 @@ impl Chip8 {
         let pg_len = program.len();
         let max_len = MEM_SIZE - PG_START;
         if pg_len > max_len {
-            return Err(EmuErr::BadPgSize { pg_len, max_len });
+            return Err(EmuErr::ProgramLength { pg_len, max_len });
         }
 
         //Checks if program fits into memory.
         let mut memory = [0u8; MEM_SIZE];
 
-        //Loads Chip8 fonts into memory, from 0x0 to 0x50.
-        for (m_byte, &f_byte) in memory.iter_mut().zip(CHIP8_FONT.iter()) {
-            *m_byte = f_byte;
-        }
-
-        //Loads Schip fonts into memory, from 0x50.
-        for (m_byte, &f_byte) in memory[CHIP8_FONT.len()..].iter_mut().zip(SCHIP_FONT.iter()) {
+        //Loads fonts into memory, from 0x0 to 0x50.
+        for (m_byte, &f_byte) in memory.iter_mut().zip(FONT_DATA.iter()) {
             *m_byte = f_byte;
         }
 
@@ -150,7 +144,7 @@ impl Chip8 {
 
     pub fn execute_next(&mut self) -> Result<(), EmuErr> {
         if self.pc >= self.memory.len() as u16 {
-            return Err(EmuErr::BadPc { pc: self.pc });
+            return Err(EmuErr::PcOutOfBounds { pc: self.pc });
         }
 
         //Merges 2 byte opcode into u16
@@ -167,9 +161,9 @@ impl Chip8 {
 
     fn check_ireg_offset(&self, offset: u16) -> Result<(), EmuErr> {
         if self.i_reg + offset > 0xFFF {
-            return Err(EmuErr::BadIregSet {
+            return Err(EmuErr::IregOverflow {
                 ireg: self.i_reg,
-                offset: offset,
+                offset,
             });
         }
         Ok(())
@@ -219,7 +213,7 @@ impl Chip8 {
                     self.pc += 2;
                 }
             }
-            0xA => self.i_reg = instruction.nnn() as u16,
+            0xA => self.i_reg = instruction.nnn(),
             0xB => self.pc = instruction.nnn() + *x_reg_ref as u16,
             0xC => *x_reg_ref = thread_rng().gen_range(0u8..=255u8) % instruction.kk(),
             0xD => self.draw(instruction)?,

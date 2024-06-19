@@ -1,7 +1,4 @@
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
 use std::{
     env,
     fs::File,
@@ -33,27 +30,28 @@ fn main() {
     let program = load_program_bytes();
     let mut chip_8 = Chip8Builder::new()
         .with_program(&program)
-        .vf_reset_quirk()
-        .jumping_quirk()
+        .with_vf_reset_quirk()
+        .with_jumping_quirk()
         .build()
         .unwrap();
 
     'running: loop {
         for event in event_pump.poll_iter() {
+            use Event::*;
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
+                Quit { .. }
+                | KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
-                Event::KeyDown {
+                KeyDown {
                     keycode: Some(key), ..
                 } => {
                     if let Some(key) = match_key(key) {
                         chip_8.set_key(key);
                     }
                 }
-                Event::KeyUp {
+                KeyUp {
                     keycode: Some(key), ..
                 } => {
                     if let Some(key) = match_key(key) {

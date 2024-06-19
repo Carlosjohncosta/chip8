@@ -1,5 +1,5 @@
-mod chip_8;
-pub use chip_8::*;
+mod chip_8_emulator;
+pub use chip_8_emulator::*;
 mod instruction;
 use instruction::Instruction;
 mod emu_err;
