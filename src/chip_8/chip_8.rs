@@ -276,12 +276,12 @@ impl Chip8 {
             0x4 => {
                 let did_wrap = x_reg_ref.checked_add(y_reg_val).is_none();
                 *x_reg_ref = x_reg_ref.wrapping_add(y_reg_val);
-                self.v_reg[0xF] = did_wrap.to_u8();
+                self.v_reg[0xF] = did_wrap as u8;
             }
             0x5 => {
                 let didnt_wrap = x_reg_ref.checked_sub(y_reg_val).is_some();
                 *x_reg_ref = x_reg_ref.wrapping_sub(y_reg_val);
-                self.v_reg[0xF] = didnt_wrap.to_u8();
+                self.v_reg[0xF] = didnt_wrap as u8;
             }
             0x6 => {
                 let lsb = *x_reg_ref & 0x1;
@@ -291,7 +291,7 @@ impl Chip8 {
             0x7 => {
                 let didnt_wrap = y_reg_val.checked_sub(*x_reg_ref).is_some();
                 *x_reg_ref = y_reg_val.wrapping_sub(*x_reg_ref);
-                self.v_reg[0xF] = didnt_wrap.to_u8();
+                self.v_reg[0xF] = didnt_wrap as u8;
             }
             0xE => {
                 let hsb = *x_reg_ref >> 0x7;
@@ -426,8 +426,12 @@ impl Chip8 {
         &self.display_buffer
     }
 
-    pub fn set_key(&mut self, key: usize, val: bool) {
-        self.pressed_keys[key] = val;
+    pub fn set_key(&mut self, key: usize) {
+        self.pressed_keys[key] = true;
+    }
+
+    pub fn unset_key(&mut self, key: usize) {
+        self.pressed_keys[key] = false;
     }
 
     pub fn dec_delay_reg(&mut self) {
@@ -447,18 +451,4 @@ fn u16_to_bcd_array(num: u8) -> [u8; 3] {
         remainder -= digit * dec_pow;
     }
     output
-}
-
-trait ToU8 {
-    fn to_u8(&self) -> u8;
-}
-
-impl ToU8 for bool {
-    fn to_u8(&self) -> u8 {
-        if *self {
-            1u8
-        } else {
-            0u8
-        }
-    }
 }

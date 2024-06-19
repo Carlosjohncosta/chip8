@@ -9,7 +9,7 @@ use std::{
     thread, time,
 };
 mod chip_8;
-use chip_8::{Chip8, Chip8Builder, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use chip_8::{Chip8Builder, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 const PIXEL_SIZE: u32 = 10;
 
@@ -50,14 +50,14 @@ fn main() {
                     keycode: Some(key), ..
                 } => {
                     if let Some(key) = match_key(key) {
-                        chip_8.set_key(key, true)
+                        chip_8.set_key(key);
                     }
                 }
                 Event::KeyUp {
                     keycode: Some(key), ..
                 } => {
                     if let Some(key) = match_key(key) {
-                        chip_8.set_key(key, false)
+                        chip_8.unset_key(key);
                     }
                 }
                 _ => {}
