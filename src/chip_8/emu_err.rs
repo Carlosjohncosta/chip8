@@ -12,7 +12,7 @@ pub enum EmuErr {
 }
 
 impl fmt::Display for EmuErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use EmuErr::*;
         match self {
             ProgramLength { pg_len, max_len } => {

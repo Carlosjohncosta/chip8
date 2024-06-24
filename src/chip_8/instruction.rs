@@ -6,14 +6,12 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    // All methods inlined due to being single expressions.
+
+    #[inline]
     pub fn new(instruction: u16) -> Self {
         Self { instruction }
     }
-
-    /*
-     * All bellow methods are used to index certain portions of the instruction.
-     * Inlined as to not impose overhead of function call (methods are a single expression)
-     */
 
     #[inline]
     pub fn nnn(&self) -> u16 {

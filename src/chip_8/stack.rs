@@ -17,7 +17,7 @@ impl Stack {
 
     pub fn push(&mut self, val: u16) -> Result<(), EmuErr> {
         if self.sp >= STACK_LENGTH {
-            return Err(EmuErr::StackUnderflow { sp: self.sp });
+            return Err(EmuErr::StackOverflow { sp: self.sp });
         }
         self.stack[self.sp] = val;
         self.sp += 1;
@@ -26,7 +26,7 @@ impl Stack {
 
     pub fn pop(&mut self) -> Result<u16, EmuErr> {
         if self.sp == 0 {
-            return Err(EmuErr::StackOverflow { sp: self.sp });
+            return Err(EmuErr::StackUnderflow { sp: self.sp });
         }
         self.sp -= 1;
         let val = self.stack[self.sp];

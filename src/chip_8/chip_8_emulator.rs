@@ -89,7 +89,7 @@ impl<'a> Chip8Builder<'a> {
 
 pub struct Chip8 {
     quirks: Quirks,
-    pub memory: [u8; 0x1000],
+    memory: [u8; 0x1000],
     stack: Stack,
     v_reg: [u8; 0x10],
     i_reg: u16,
@@ -98,7 +98,7 @@ pub struct Chip8 {
     pc: u16,
     pressed_keys: [bool; 0x10],
     display_buffer: Box<[BitVec]>,
-    pub high_res: bool,
+    high_res: bool,
 }
 
 impl Chip8 {
@@ -110,18 +110,18 @@ impl Chip8 {
             return Err(EmuErr::ProgramLength { pg_len, max_len });
         }
 
-        //Checks if program fits into memory.
+        //Program memory.
         let mut memory = [0u8; MEM_SIZE];
 
-        //Loads fonts into memory, from 0x0 to 0x50.
+        //Loads fonts into memory.
         for (m_byte, &f_byte) in memory.iter_mut().zip(FONT_DATA.iter()) {
             *m_byte = f_byte;
         }
 
-        //Slize of memory that will hold the program, typically starting at 0x200.
+        //Slice of memory that will hold the program, typically starting at 0x200.
         let mem_pg_slice = &mut memory[PG_START..];
 
-        //Inserts program into mem slice.
+        //Loads program into memory.
         for (m_byte, &p_byte) in mem_pg_slice.iter_mut().zip(program.iter()) {
             *m_byte = p_byte;
         }
@@ -143,24 +143,24 @@ impl Chip8 {
     }
 
     pub fn execute_next(&mut self) -> Result<(), EmuErr> {
-        if self.pc >= self.memory.len() as u16 {
+        if self.pc as usize >= self.memory.len() - 1 {
             return Err(EmuErr::PcOutOfBounds { pc: self.pc });
         }
 
-        //Merges 2 byte opcode into u16
+        //Merges 2 byte opcode into instruction.
         let high_byte = (self.memory[self.pc as usize] as u16) << 8;
         let low_byte = self.memory[self.pc as usize + 1] as u16;
         let raw_instruction = high_byte | low_byte;
         let instruction = Instruction::new(raw_instruction);
 
-        //PC incremented before exxecution as jump instructions modify PC.
+        //PC incremented before execution as jump instructions modify PC.
         self.pc += 2;
         self.decode_and_execute(instruction)?;
         Ok(())
     }
 
     fn check_ireg_offset(&self, offset: u16) -> Result<(), EmuErr> {
-        if self.i_reg + offset > 0xFFF {
+        if (self.i_reg + offset) as usize > MEM_SIZE {
             return Err(EmuErr::IregOverflow {
                 ireg: self.i_reg,
                 offset,
@@ -169,7 +169,7 @@ impl Chip8 {
         Ok(())
     }
 
-    pub fn decode_and_execute(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
+    fn decode_and_execute(&mut self, instruction: Instruction) -> Result<(), EmuErr> {
         let x_reg_ref = &mut self.v_reg[instruction.x()];
         let kk = instruction.kk();
         match instruction.high_nibble() {
@@ -218,21 +218,24 @@ impl Chip8 {
             0xC => *x_reg_ref = thread_rng().gen_range(0u8..=255u8) % instruction.kk(),
             0xD => self.draw(instruction)?,
             0xE => {
-                let x_reg_val = *x_reg_ref;
-                let key_pressed = self.pressed_keys[x_reg_val as usize];
-                if kk == 0x9E {
-                    if key_pressed {
-                        self.pc += 2;
+                let key_pressed = self.pressed_keys[*x_reg_ref as usize];
+                match kk {
+                    0x9E => {
+                        if key_pressed {
+                            self.pc += 2;
+                        }
                     }
-                } else if kk == 0xA1 {
-                    if !key_pressed {
-                        self.pc += 2;
+                    0xA1 => {
+                        if !key_pressed {
+                            self.pc += 2;
+                        }
                     }
-                } else {
-                    return Err(EmuErr::BadInstruction {
-                        pc: self.pc,
-                        instruction,
-                    });
+                    _ => {
+                        return Err(EmuErr::BadInstruction {
+                            pc: self.pc,
+                            instruction,
+                        });
+                    }
                 }
             }
             0xF => return self.instruction_0xf(instruction),
@@ -327,8 +330,8 @@ impl Chip8 {
             0x30 => self.i_reg = (0x50 + x_reg_val * 10) as u16,
             0x33 => {
                 self.check_ireg_offset(2)?;
-                let bcd = u16_to_bcd_array(x_reg_val);
-                for (m, d) in self.memory[self.i_reg as usize..][..3].iter_mut().zip(bcd) {
+                let bcd = u8_to_bcd_array(x_reg_val);
+                for (m, d) in self.memory[self.i_reg as usize..].iter_mut().zip(bcd) {
                     *m = d;
                 }
             }
@@ -368,13 +371,13 @@ impl Chip8 {
         let i_reg = self.i_reg as usize;
         let mut vf_new = 0x0;
         //Slice of memory that will be used to draw from.
-        let sprite16 = self.high_res && instruction.low_nibble() == 0;
-        let mem_slice = if sprite16 {
+        let high_res_sprite = self.high_res && instruction.low_nibble() == 0;
+        let mem_slice = if high_res_sprite {
             self.check_ireg_offset(0x20)?;
-            &self.memory[i_reg..i_reg + 0x20]
+            &self.memory[i_reg..][..0x20]
         } else {
             self.check_ireg_offset(instruction.low_nibble() as u16)?;
-            &self.memory[i_reg..i_reg + instruction.low_nibble() as usize]
+            &self.memory[i_reg..][..instruction.low_nibble() as usize]
         };
         let (mut x_wrap, mut y_wrap) = (DISPLAY_WIDTH, DISPLAY_HEIGHT);
         if !self.high_res {
@@ -382,22 +385,21 @@ impl Chip8 {
             y_wrap /= 2;
         }
         for (i, byte) in mem_slice.iter().enumerate() {
-            //Loops through each bit in byte and XORs bit onto display buffer
-            let y_offset = if sprite16 { i / 2 } else { i };
+            let y_offset = if high_res_sprite { i / 2 } else { i };
             let y_coord = (v_reg_y + y_offset) % y_wrap;
             for j in 0usize..8usize {
-                let x_offset = if sprite16 { j + 8 * (i % 2) } else { j };
+                let x_offset = if high_res_sprite { j + 8 * (i % 2) } else { j };
                 let x_coord = (v_reg_x + x_offset) % x_wrap;
                 let curr_bit = (byte >> (7 - j)) & 0x1 == 0x1;
 
-                //Do nothing if the current bit is 0
+                //continue if the current sprite bit is 0.
                 if !curr_bit {
                     continue;
                 }
 
                 let pixel = self.display_buffer[x_coord][y_coord];
 
-                //VF flag set true if there is a pixel collision (1 XOR 1)
+                //VF flag set true if there is a pixel collision (1 XOR 1).
                 if pixel {
                     vf_new = 0x1;
                 }
@@ -433,9 +435,13 @@ impl Chip8 {
             self.delay_reg -= 1;
         }
     }
+
+    pub fn is_high_res(&self) -> bool {
+        self.high_res
+    }
 }
 
-fn u16_to_bcd_array(num: u8) -> [u8; 3] {
+fn u8_to_bcd_array(num: u8) -> [u8; 3] {
     let mut remainder = num;
     let mut output = [0u8; 3];
     for i in (0..3).rev() {

@@ -47,14 +47,14 @@ fn main() {
                 KeyDown {
                     keycode: Some(key), ..
                 } => {
-                    if let Some(key) = match_key(key) {
+                    if let Some(key) = sdl_key_to_ch8_key(key) {
                         chip_8.set_key(key);
                     }
                 }
                 KeyUp {
                     keycode: Some(key), ..
                 } => {
-                    if let Some(key) = match_key(key) {
+                    if let Some(key) = sdl_key_to_ch8_key(key) {
                         chip_8.unset_key(key);
                     }
                 }
@@ -67,7 +67,7 @@ fn main() {
         canvas.set_draw_color(Color::RGB(0, 255, 0));
 
         let display_buffer = chip_8.get_display_buffer();
-        let px_size = if chip_8.high_res {
+        let pixel_size = if chip_8.is_high_res() {
             PIXEL_SIZE
         } else {
             PIXEL_SIZE * 2
@@ -77,10 +77,10 @@ fn main() {
                 if pixel {
                     canvas
                         .fill_rect(Rect::new(
-                            x as i32 * px_size,
-                            y as i32 * px_size,
-                            px_size as u32,
-                            px_size as u32,
+                            x as i32 * pixel_size,
+                            y as i32 * pixel_size,
+                            pixel_size as u32,
+                            pixel_size as u32,
                         ))
                         .unwrap();
                 }
@@ -101,14 +101,14 @@ fn main() {
 fn load_program_bytes() -> Box<[u8]> {
     let args: Vec<String> = env::args().collect();
     let path = format!("rom/{}", args.get(1).expect("No arguments give for ROM."));
-    let f = File::open(path).expect("File not found");
-    let mut reader = BufReader::new(f);
+    let file = File::open(path).expect("File not found");
+    let mut reader = BufReader::new(file);
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer).unwrap();
     buffer.into_boxed_slice()
 }
 
-fn match_key(key: Keycode) -> Option<usize> {
+fn sdl_key_to_ch8_key(key: Keycode) -> Option<usize> {
     match key {
         Keycode::Kp1 => Some(0x1),
         Keycode::Kp2 => Some(0x2),
