@@ -1,4 +1,4 @@
-use super::*;
+use super::{insert_slice::InsertSlice, *};
 use bit_vec::*;
 use rand::{thread_rng, Rng};
 
@@ -113,18 +113,12 @@ impl Chip8 {
         //Program memory.
         let mut memory = [0u8; MEM_SIZE];
 
-        //Loads fonts into memory.
-        for (m_byte, &f_byte) in memory.iter_mut().zip(FONT_DATA.iter()) {
-            *m_byte = f_byte;
-        }
+        memory.insert_slice(&FONT_DATA);
 
         //Slice of memory that will hold the program, typically starting at 0x200.
         let mem_pg_slice = &mut memory[PG_START..];
 
-        //Loads program into memory.
-        for (m_byte, &p_byte) in mem_pg_slice.iter_mut().zip(program.iter()) {
-            *m_byte = p_byte;
-        }
+        mem_pg_slice.insert_slice(&program);
 
         Ok(Self {
             quirks,
@@ -331,16 +325,13 @@ impl Chip8 {
             0x33 => {
                 self.check_ireg_offset(2)?;
                 let bcd = u8_to_bcd_array(x_reg_val);
-                for (m, d) in self.memory[self.i_reg as usize..].iter_mut().zip(bcd) {
-                    *m = d;
-                }
+                let mem_slice = &mut self.memory[self.i_reg as usize..];
+                mem_slice.insert_slice(&bcd);
             }
             0x55 => {
                 let v_reg_slice = &self.v_reg[..=instruction.x()];
                 let mem_slice = &mut self.memory[self.i_reg as usize..];
-                for (m, &v) in mem_slice.iter_mut().zip(v_reg_slice.iter()) {
-                    *m = v;
-                }
+                mem_slice.insert_slice(v_reg_slice);
                 if self.quirks.jumping_quirk {
                     self.i_reg += 1;
                 }
@@ -348,9 +339,7 @@ impl Chip8 {
             0x65 => {
                 let v_reg_slice = &mut self.v_reg[..=instruction.x()];
                 let mem_slice = &self.memory[self.i_reg as usize..];
-                for (v, &m) in v_reg_slice.iter_mut().zip(mem_slice.iter()) {
-                    *v = m;
-                }
+                v_reg_slice.insert_slice(&mem_slice);
                 if self.quirks.jumping_quirk {
                     self.i_reg += 1;
                 }

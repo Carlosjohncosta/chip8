@@ -1,34 +1,35 @@
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
+use sdl2::{
+    event::Event, keyboard::Keycode, pixels::Color, rect::Rect, render::WindowCanvas, Sdl,
+    VideoSubsystem,
+};
 use std::{
-    env,
     fs::File,
     io::{BufReader, Read},
     thread, time,
 };
+
 mod chip_8;
-use chip_8::{Chip8Builder, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use chip_8::{Chip8, Chip8Builder, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 const PIXEL_SIZE: u32 = 10;
 
 fn main() {
-    let sdl_context = sdl2::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-
+    let sdl_context: Sdl = sdl2::init().unwrap();
+    let video_subsystem: VideoSubsystem = sdl_context.video().unwrap();
     let window = video_subsystem
         .window(
-            "Rust Chip-8",
+            "Rust Chip-8;",
             DISPLAY_WIDTH as u32 * PIXEL_SIZE,
             DISPLAY_HEIGHT as u32 * PIXEL_SIZE,
         )
         .position_centered()
-        .build()
-        .unwrap();
+        .build();
 
-    let mut canvas = window.into_canvas().build().unwrap();
+    let mut canvas: WindowCanvas = window.unwrap().into_canvas().build().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let program = load_program_bytes();
-    let mut chip_8 = Chip8Builder::new()
+    let mut chip_8: Chip8 = Chip8Builder::new()
         .with_program(&program)
         .with_vf_reset_quirk()
         .with_jumping_quirk()
@@ -99,8 +100,8 @@ fn main() {
 }
 
 fn load_program_bytes() -> Box<[u8]> {
-    let args: Vec<String> = env::args().collect();
-    let path = format!("rom/{}", args.get(1).expect("No arguments give for ROM."));
+    let args: Box<[String]> = std::env::args().collect();
+    let path = format!("rom/{}", args.get(1).expect("No argument given for ROM."));
     let file = File::open(path).expect("File not found");
     let mut reader = BufReader::new(file);
     let mut buffer = Vec::new();

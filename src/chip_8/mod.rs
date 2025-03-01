@@ -4,5 +4,6 @@ mod instruction;
 use instruction::Instruction;
 mod emu_err;
 pub use emu_err::EmuErr;
+pub mod insert_slice;
 mod stack;
 use stack::*;
